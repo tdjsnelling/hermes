@@ -1,0 +1,14 @@
+{
+  "name": "hermes",
+  "version": "1.0.0",
+  "description": "Light weight MongoDB change streams for React apps",
+  "repository": "https://github.com/tdjsnelling/hermes",
+  "author": "Tom Snelling",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "workspaces": [
+    "server",
+    "react"
+  ],
+  "dependencies": {}
+}
