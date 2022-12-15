@@ -9,10 +9,10 @@ interface WebSocketWithUid extends WebSocket {
 
 const subscriptionMap: { [key: string]: Set<string> } = {};
 
-const main = async () => {
+const main = async (port) => {
   const client = new MongoClient(process.env.MONGO_SRV);
   const server = new WebSocketServer({
-    port: Number(process.env.PORT) || 9000,
+    port,
   });
 
   try {
@@ -73,8 +73,6 @@ const main = async () => {
           if (subscriptionMap[collection] instanceof Set)
             subscriptionMap[collection].delete(ws.uid);
         }
-
-        console.log(subscriptionMap);
       });
 
       ws.on("close", () => {
@@ -88,19 +86,37 @@ const main = async () => {
 
     await client.connect();
     const stream = client.db(process.env.MONGO_DB).watch();
-    stream.on("change", (doc) => {
+    stream.on("change", (event) => {
       if (
-        doc.operationType === "insert" ||
-        doc.operationType === "delete" ||
-        doc.operationType === "update"
+        event.operationType === "insert" ||
+        event.operationType === "delete" ||
+        event.operationType === "update"
       ) {
-        const { coll } = doc.ns;
+        const { coll } = event.ns;
+
+        const message: {
+          coll: string;
+          type: "insert" | "delete" | "update";
+          id: string;
+          insert?: object;
+          update?: object;
+        } = {
+          coll,
+          type: event.operationType,
+          id: event.documentKey._id.toString(),
+        };
+
+        if (event.operationType === "insert")
+          message.insert = event.fullDocument;
+        else if (event.operationType === "update")
+          message.update = event.updateDescription;
+
         const subscribers = subscriptionMap[coll];
         const sockets = Array.from(server.clients).filter(
           (ws: WebSocketWithUid) =>
             subscribers instanceof Set && subscribers.has(ws.uid)
         );
-        sockets.forEach((ws) => ws.send(JSON.stringify({ change: doc })));
+        sockets.forEach((ws) => ws.send(JSON.stringify(message)));
       }
     });
   } catch (e) {
@@ -109,4 +125,7 @@ const main = async () => {
 };
 
 config();
-main().then(() => console.log("hermes server running"));
+const port = Number(process.env.PORT) || 9000;
+main(port).then(() =>
+  console.log(`hermes server running at ws://localhost:${port}`)
+);
