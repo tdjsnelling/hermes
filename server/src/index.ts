@@ -1,6 +1,7 @@
 import { MongoClient } from "mongodb";
 import { config } from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
+import { v4 as uuid } from "uuid";
 import { Message } from "./message-types";
 
 interface WebSocketWithUid extends WebSocket {
@@ -16,8 +17,14 @@ const main = async (port) => {
   });
 
   try {
+    await client.connect();
+
     server.on("connection", (ws: WebSocketWithUid) => {
-      const reply = (data: { message?: string; error?: string }) => {
+      const reply = (data: {
+        reply: string;
+        payload?: object;
+        error?: string;
+      }) => {
         ws.send(JSON.stringify(data));
       };
 
@@ -27,7 +34,7 @@ const main = async (port) => {
         try {
           message = JSON.parse(data.toString());
         } catch (e) {
-          reply({ error: "Message must be valid JSON" });
+          reply({ reply: "none", error: "Message must be valid JSON" });
           ws.close();
           return;
         }
@@ -35,16 +42,21 @@ const main = async (port) => {
         if (message.type === "identify") {
           const { id } = message.payload;
           if (!id) {
-            reply({ error: "`id` must be specified" });
+            reply({ reply: "identify", error: "`id` must be specified" });
             return;
           }
           ws.uid = id;
-          reply({ message: `Client is known as \`${id}\`` });
+          reply({
+            reply: "identify",
+            payload: {
+              message: `Client is known as \`${id}\``,
+            },
+          });
           return;
         }
 
         if (!ws.uid) {
-          reply({ error: "Client has not identified itself" });
+          reply({ reply: "none", error: "Client has not identified itself" });
           return;
         }
 
@@ -52,26 +64,57 @@ const main = async (port) => {
           const { collection } = message.payload;
 
           if (!collection) {
-            reply({ error: "`collection` must be specified" });
+            reply({
+              reply: "subscribe",
+              error: "`collection` must be specified",
+            });
             return;
           }
 
           if (!subscriptionMap[collection])
             subscriptionMap[collection] = new Set();
 
+          const id = uuid();
+
           subscriptionMap[collection].add(ws.uid);
+
+          reply({
+            reply: "subscribe",
+            payload: {
+              collection,
+              id,
+            },
+          });
         }
 
         if (message.type === "unsubscribe") {
-          const { collection } = message.payload;
+          const { collection, id } = message.payload;
 
           if (!collection) {
-            reply({ error: "`collection` must be specified" });
+            reply({
+              reply: "unsubscribe",
+              error: "`collection` must be specified",
+            });
+            return;
+          }
+
+          if (!id) {
+            reply({
+              reply: "unsubscribe",
+              error: "`id` must be specified",
+            });
             return;
           }
 
           if (subscriptionMap[collection] instanceof Set)
             subscriptionMap[collection].delete(ws.uid);
+
+          reply({
+            reply: "unsubscribe",
+            payload: {
+              collection,
+            },
+          });
         }
       });
 
@@ -84,7 +127,6 @@ const main = async (port) => {
       ws.send("hermes");
     });
 
-    await client.connect();
     const stream = client.db(process.env.MONGO_DB).watch();
     stream.on("change", (event) => {
       if (
@@ -95,21 +137,27 @@ const main = async (port) => {
         const { coll } = event.ns;
 
         const message: {
-          coll: string;
-          type: "insert" | "delete" | "update";
-          id: string;
-          insert?: object;
-          update?: object;
+          reply: "data";
+          payload: {
+            coll: string;
+            operation: "insert" | "delete" | "update";
+            id: string;
+            insert?: object;
+            update?: object;
+          };
         } = {
-          coll,
-          type: event.operationType,
-          id: event.documentKey._id.toString(),
+          reply: "data",
+          payload: {
+            coll,
+            operation: event.operationType,
+            id: event.documentKey._id.toString(),
+          },
         };
 
         if (event.operationType === "insert")
-          message.insert = event.fullDocument;
+          message.payload.insert = event.fullDocument;
         else if (event.operationType === "update")
-          message.update = event.updateDescription;
+          message.payload.update = event.updateDescription;
 
         const subscribers = subscriptionMap[coll];
         const sockets = Array.from(server.clients).filter(

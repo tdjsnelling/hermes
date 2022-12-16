@@ -1,28 +1,28 @@
 {
-  "name": "@hermes/server",
+  "name": "@hermes/react",
   "version": "1.0.0",
   "license": "GPL-3.0-only",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/index.js\""
+    "build:watch": "yarn build --watch"
   },
   "devDependencies": {
-    "@types/mongodb": "^4.0.7",
-    "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.46.1",
     "@typescript-eslint/parser": "^5.46.1",
-    "concurrently": "^7.6.0",
     "eslint": "^8.29.0",
     "eslint-config-prettier": "^8.5.0",
+    "eslint-config-react": "^1.1.7",
     "eslint-plugin-prettier": "^4.2.1",
-    "nodemon": "^2.0.20",
+    "eslint-plugin-react": "^7.31.11",
     "prettier": "^2.8.1",
     "typescript": "^4.9.4"
   },
   "dependencies": {
-    "dotenv": "^16.0.3",
-    "mongodb": "^4.12.1",
-    "uuid": "^9.0.0",
-    "ws": "^8.11.0"
+    "prop-types": "^15.8.1",
+    "uuid": "^9.0.0"
+  },
+  "peerDependencies": {
+    "react": "^14.0.0"
   }
 }

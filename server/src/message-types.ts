@@ -6,7 +6,7 @@ export type Message<
 type Payload = {
   identify: PIdentify;
   subscribe: PSubscribe;
-  unsubscribe: PSubscribe;
+  unsubscribe: PUnsubscribe;
 };
 
 type MessageMap<P, T extends keyof P = keyof P> = {
@@ -20,4 +20,9 @@ type PIdentify = {
 
 type PSubscribe = {
   collection: string;
+};
+
+type PUnsubscribe = {
+  collection: string;
+  id: string;
 };
