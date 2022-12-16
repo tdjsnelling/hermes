@@ -2,7 +2,7 @@ import { MongoClient } from "mongodb";
 import { config } from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { v4 as uuid } from "uuid";
-import { Message } from "./message-types";
+import { Message, DataReply } from "./message-types";
 
 interface WebSocketWithUid extends WebSocket {
   uid?: string;
@@ -28,7 +28,7 @@ const main = async (port) => {
         ws.send(JSON.stringify(data));
       };
 
-      ws.on("message", (data) => {
+      ws.on("message", async (data) => {
         let message: Message;
 
         try {
@@ -85,6 +85,21 @@ const main = async (port) => {
               id,
             },
           });
+
+          const docs = await client
+            .db(process.env.MONGO_DB)
+            .collection(collection)
+            .find({})
+            .toArray();
+
+          reply({
+            reply: "data",
+            payload: {
+              coll: collection,
+              operation: "insert",
+              insertData: docs,
+            },
+          });
         }
 
         if (message.type === "unsubscribe") {
@@ -136,28 +151,25 @@ const main = async (port) => {
       ) {
         const { coll } = event.ns;
 
-        const message: {
-          reply: "data";
-          payload: {
-            coll: string;
-            operation: "insert" | "delete" | "update";
-            id: string;
-            insert?: object;
-            update?: object;
-          };
-        } = {
+        const message: DataReply = {
           reply: "data",
           payload: {
             coll,
             operation: event.operationType,
-            id: event.documentKey._id.toString(),
           },
         };
 
         if (event.operationType === "insert")
-          message.payload.insert = event.fullDocument;
+          message.payload.insertData = [event.fullDocument];
+        else if (event.operationType === "delete")
+          message.payload.deleteData = [event.documentKey._id.toString()];
         else if (event.operationType === "update")
-          message.payload.update = event.updateDescription;
+          message.payload.updateData = [
+            {
+              _id: event.documentKey._id.toString(),
+              updateDescription: event.updateDescription,
+            },
+          ];
 
         const subscribers = subscriptionMap[coll];
         const sockets = Array.from(server.clients).filter(
@@ -165,6 +177,8 @@ const main = async (port) => {
             subscribers instanceof Set && subscribers.has(ws.uid)
         );
         sockets.forEach((ws) => ws.send(JSON.stringify(message)));
+
+        console.dir(event, { depth: null });
       }
     });
   } catch (e) {

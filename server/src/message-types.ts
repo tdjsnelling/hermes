@@ -1,3 +1,5 @@
+import { Document, UpdateDescription } from "mongodb";
+
 export type Message<
   P = Payload,
   T extends keyof P = keyof P
@@ -25,4 +27,17 @@ type PSubscribe = {
 type PUnsubscribe = {
   collection: string;
   id: string;
+};
+
+export type DataReply = {
+  reply: "data";
+  payload: PDataReply;
+};
+
+export type PDataReply = {
+  coll: string;
+  operation: "insert" | "delete" | "update";
+  insertData?: Document[];
+  deleteData?: string[];
+  updateData?: { _id: string; updateDescription: UpdateDescription }[];
 };

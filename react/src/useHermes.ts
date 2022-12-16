@@ -1,9 +1,8 @@
-import { useContext, useEffect } from "react";
+import { useContext, useEffect, useMemo } from "react";
 import HermesContext from "./HermesContext";
 
 export default (collection) => {
-  const { connected, subscribe, subscriptions, documents } =
-    useContext(HermesContext);
+  const { connected, subscribe, documents } = useContext(HermesContext);
 
   useEffect(() => {
     if (connected) {
@@ -11,5 +10,8 @@ export default (collection) => {
     }
   }, [connected]);
 
-  return { documents, subscriptions };
+  return useMemo(
+    () => documents[collection] ?? [],
+    [JSON.stringify(documents[collection] ?? {})]
+  );
 };

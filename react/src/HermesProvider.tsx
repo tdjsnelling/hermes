@@ -4,26 +4,98 @@ import { v4 as uuid } from "uuid";
 import HermesContext from "./HermesContext";
 import MemoWrapper from "./MemoWrapper";
 
+type SubscriptionsStore = {
+  [key: string]: string[];
+};
+
+type DocumentsStore = {
+  [key: string]: {
+    [key: string]: Partial<{ _id: string }>;
+  };
+};
+
+const initWebsocket = (url, setConnected, socketRef, handleMessage) => {
+  const ws = new WebSocket(url);
+
+  let retry;
+
+  ws.addEventListener("open", () => {
+    if (retry) {
+      clearTimeout(retry);
+      retry = undefined;
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    setConnected(false);
+    socketRef.current = undefined;
+
+    if (!retry)
+      retry = setTimeout(() => {
+        initWebsocket(url, setConnected, socketRef, handleMessage);
+      }, 1000);
+  });
+
+  ws.addEventListener("error", () => {
+    ws.close();
+  });
+
+  ws.addEventListener("message", ({ data }) => {
+    handleMessage(ws, data);
+  });
+
+  socketRef.current = ws;
+};
+
 const HermesProvider = ({ url, children }) => {
-  const [connected, setConnected] = useState(false);
-  const [subscriptions, setSubscriptions] = useState({});
-  const [documents, setDocuments] = useState({});
+  const [connected, setConnected] = useState<boolean>(false);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionsStore>({});
+  const [documents, setDocuments] = useState<DocumentsStore>({});
 
   const socket: { current: WebSocket } = useRef();
 
+  const updateData = ({
+    coll,
+    operation,
+    insertData,
+    deleteData,
+    updateData,
+  }) => {
+    setDocuments((d) => {
+      const existingDocuments = { ...d };
+      if (!existingDocuments[coll]) existingDocuments[coll] = {};
+
+      if (operation === "insert") {
+        for (const doc of insertData) {
+          existingDocuments[coll][doc._id] = doc;
+        }
+      } else if (operation === "delete") {
+        for (const _id of deleteData) {
+          delete existingDocuments[coll][_id];
+        }
+      } else if (operation === "update") {
+        for (const update of updateData) {
+          const { _id, updateDescription } = update;
+
+          for (const [field, value] of Object.entries(
+            updateDescription.updatedFields
+          )) {
+            existingDocuments[coll][_id][field] = value;
+          }
+
+          for (const field of updateDescription.removedFields) {
+            delete existingDocuments[coll][_id][field];
+          }
+        }
+      }
+
+      return existingDocuments;
+    });
+  };
+
   useEffect(() => {
     if (!connected && !socket.current) {
-      const ws = new WebSocket(url);
-
-      ws.addEventListener("close", () => {
-        setConnected(false);
-      });
-
-      ws.addEventListener("error", () => {
-        setConnected(false);
-      });
-
-      ws.addEventListener("message", ({ data }) => {
+      initWebsocket(url, setConnected, socket, (ws, data) => {
         if (data === "hermes") {
           const id = uuid();
           ws.send(
@@ -39,7 +111,8 @@ const HermesProvider = ({ url, children }) => {
           try {
             message = JSON.parse(data);
           } catch (e) {
-            throw "Message is not valid JSON";
+            console.error("hermes: message is not valid json");
+            return;
           }
 
           if (message.reply === "identify") {
@@ -54,24 +127,18 @@ const HermesProvider = ({ url, children }) => {
               });
             }
           } else if (message.reply === "data") {
-            const { coll, id } = message.payload;
-            setDocuments((d) => {
-              const existingDocuments = { ...d };
-              if (!existingDocuments[coll]) existingDocuments[coll] = {};
-              existingDocuments[coll][id] = message.payload;
-              return existingDocuments;
-            });
+            updateData(message.payload);
           }
         }
       });
-
-      socket.current = ws;
     }
   }, [connected]);
 
-  const subscribe = (collection) => {
-    if (!socket.current || socket.current.readyState !== 1)
-      throw "No active connection";
+  const subscribe = (collection: string) => {
+    if (!socket.current || socket.current.readyState !== 1) {
+      console.error("hermes: no active websocket connection");
+      return;
+    }
 
     const alreadySubscribed = !!subscriptions[collection];
 
@@ -87,9 +154,16 @@ const HermesProvider = ({ url, children }) => {
     }
   };
 
+  window["hermes"] = {
+    url,
+    connected,
+    documents,
+    subscriptions,
+  };
+
   return (
     <HermesContext.Provider
-      value={{ connected, subscriptions, documents, subscribe }}
+      value={{ url, connected, subscriptions, documents, subscribe }}
     >
       <MemoWrapper>{children}</MemoWrapper>
     </HermesContext.Provider>
