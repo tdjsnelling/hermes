@@ -16,10 +16,12 @@
     "eslint-plugin-prettier": "^4.2.1",
     "eslint-plugin-react": "^7.31.11",
     "prettier": "^2.8.1",
+    "prop-types": "^15.8.1",
     "typescript": "^4.9.4"
   },
   "dependencies": {
-    "prop-types": "^15.8.1",
+    "scheduler": "^0.23.0",
+    "use-context-selector": "^1.4.1",
     "uuid": "^9.0.0"
   },
   "peerDependencies": {

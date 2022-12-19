@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import PropTypes from "prop-types";
 import { v4 as uuid } from "uuid";
 import HermesContext from "./HermesContext";
@@ -111,7 +111,7 @@ const HermesProvider = ({ url, children }) => {
           try {
             message = JSON.parse(data);
           } catch (e) {
-            console.error("hermes: message is not valid json");
+            console.error("hermes: error: message is not valid json");
             return;
           }
 
@@ -134,37 +134,34 @@ const HermesProvider = ({ url, children }) => {
     }
   }, [connected]);
 
-  const subscribe = (collection: string) => {
-    if (!socket.current || socket.current.readyState !== 1) {
-      console.error("hermes: no active websocket connection");
-      return;
-    }
+  const subscribe = useCallback(
+    (collection: string) => {
+      if (!socket.current || socket.current.readyState !== 1) {
+        console.error("hermes: error: no active websocket connection");
+        return;
+      }
 
-    const alreadySubscribed = !!subscriptions[collection];
+      const alreadySubscribed = !!subscriptions[collection];
 
-    if (!alreadySubscribed) {
-      socket.current.send(
-        JSON.stringify({
-          type: "subscribe",
-          payload: {
-            collection,
-          },
-        })
-      );
-    }
-  };
+      if (!alreadySubscribed) {
+        socket.current.send(
+          JSON.stringify({
+            type: "subscribe",
+            payload: {
+              collection,
+            },
+          })
+        );
+      }
+    },
+    [socket.current, JSON.stringify(subscriptions)]
+  );
 
-  window["hermes"] = {
-    url,
-    connected,
-    documents,
-    subscriptions,
-  };
+  const hermesState = { url, connected, subscriptions, documents, subscribe };
+  window["hermes"] = hermesState;
 
   return (
-    <HermesContext.Provider
-      value={{ url, connected, subscriptions, documents, subscribe }}
-    >
+    <HermesContext.Provider value={hermesState}>
       <MemoWrapper>{children}</MemoWrapper>
     </HermesContext.Provider>
   );
