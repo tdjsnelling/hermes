@@ -5,5 +5,6 @@ export default createContext({
   connected: false,
   subscriptions: {},
   documents: {},
-  subscribe: (collection: string) => {},
+  register: (collection: string): string => "",
+  unregister: (collection: string, id: string): void => {},
 });

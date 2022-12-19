@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { useContextSelector } from "use-context-selector";
 import HermesContext from "./HermesContext";
 
@@ -7,17 +7,29 @@ export default (collection) => {
     HermesContext,
     (value) => value.connected
   );
-  const subscribe = useContextSelector(
+  const register = useContextSelector(HermesContext, (value) => value.register);
+  const unregister = useContextSelector(
     HermesContext,
-    (value) => value.subscribe
+    (value) => value.unregister
   );
   const documents = useContextSelector(HermesContext, (value) =>
     JSON.stringify(value.documents[collection] ?? [])
   );
 
+  const registrationId: { current: string } = useRef("");
+
   useEffect(() => {
     if (connected) {
-      subscribe(collection);
+      if (!registrationId.current) {
+        registrationId.current = register(collection);
+      }
+
+      return () => {
+        if (registrationId.current) {
+          unregister(collection, registrationId.current);
+          registrationId.current = "";
+        }
+      };
     }
   }, [connected]);
 

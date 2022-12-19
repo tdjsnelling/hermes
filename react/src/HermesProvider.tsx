@@ -5,7 +5,7 @@ import HermesContext from "./HermesContext";
 import MemoWrapper from "./MemoWrapper";
 
 type SubscriptionsStore = {
-  [key: string]: string[];
+  [key: string]: Set<string>;
 };
 
 type DocumentsStore = {
@@ -53,6 +53,8 @@ const HermesProvider = ({ url, children }) => {
   const [documents, setDocuments] = useState<DocumentsStore>({});
 
   const socket: { current: WebSocket } = useRef();
+  const uid: { current: string } = useRef();
+  const prevSubscriptions: { current: SubscriptionsStore } = useRef();
 
   const updateData = ({
     coll,
@@ -98,6 +100,8 @@ const HermesProvider = ({ url, children }) => {
       initWebsocket(url, setConnected, socket, (ws, data) => {
         if (data === "hermes") {
           const id = uuid();
+          uid.current = id;
+
           ws.send(
             JSON.stringify({
               type: "identify",
@@ -119,12 +123,7 @@ const HermesProvider = ({ url, children }) => {
             if (!message.error) setConnected(true);
           } else if (message.reply === "subscribe") {
             if (!message.error) {
-              setSubscriptions((s) => {
-                const existingSubscriptions = { ...s };
-                existingSubscriptions[message.payload.collection] =
-                  message.payload.id;
-                return existingSubscriptions;
-              });
+              // TODO handle?
             }
           } else if (message.reply === "data") {
             updateData(message.payload);
@@ -134,14 +133,14 @@ const HermesProvider = ({ url, children }) => {
     }
   }, [connected]);
 
-  const subscribe = useCallback(
+  const register = useCallback(
     (collection: string) => {
       if (!socket.current || socket.current.readyState !== 1) {
         console.error("hermes: error: no active websocket connection");
         return;
       }
 
-      const alreadySubscribed = !!subscriptions[collection];
+      const alreadySubscribed = subscriptions[collection]?.size > 0;
 
       if (!alreadySubscribed) {
         socket.current.send(
@@ -153,11 +152,68 @@ const HermesProvider = ({ url, children }) => {
           })
         );
       }
+
+      const registrationId = uuid();
+
+      setSubscriptions((s) => {
+        const existingSubscriptions = { ...s };
+
+        if (!existingSubscriptions[collection])
+          existingSubscriptions[collection] = new Set();
+
+        existingSubscriptions[collection].add(registrationId);
+
+        return existingSubscriptions;
+      });
+
+      return registrationId;
     },
-    [socket.current, JSON.stringify(subscriptions)]
+    [socket.current?.readyState, JSON.stringify(subscriptions)]
   );
 
-  const hermesState = { url, connected, subscriptions, documents, subscribe };
+  const unregister = useCallback((collection: string, id: string) => {
+    setSubscriptions((s) => {
+      const existingSubscriptions = { ...s };
+      if (existingSubscriptions[collection] instanceof Set)
+        existingSubscriptions[collection].delete(id);
+      return existingSubscriptions;
+    });
+  }, []);
+
+  useEffect(() => {
+    for (const [collection, registered] of Object.entries(subscriptions)) {
+      if (
+        registered.size === 0 &&
+        prevSubscriptions.current[collection]?.size > 0
+      ) {
+        socket.current.send(
+          JSON.stringify({
+            type: "unsubscribe",
+            payload: {
+              collection,
+            },
+          })
+        );
+
+        setDocuments((d) => {
+          const existingDocuments = { ...d };
+          existingDocuments[collection] = {};
+          return existingDocuments;
+        });
+      }
+    }
+    prevSubscriptions.current = subscriptions;
+  }, [JSON.stringify(subscriptions)]);
+
+  const hermesState = {
+    url,
+    connected,
+    uid,
+    subscriptions,
+    documents,
+    register,
+    unregister,
+  };
   window["hermes"] = hermesState;
 
   return (

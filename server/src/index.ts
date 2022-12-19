@@ -1,7 +1,6 @@
 import { MongoClient } from "mongodb";
 import { config } from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { v4 as uuid } from "uuid";
 import { Message, DataReply } from "./message-types";
 
 interface WebSocketWithUid extends WebSocket {
@@ -74,15 +73,12 @@ const main = async (port) => {
           if (!subscriptionMap[collection])
             subscriptionMap[collection] = new Set();
 
-          const id = uuid();
-
           subscriptionMap[collection].add(ws.uid);
 
           reply({
             reply: "subscribe",
             payload: {
               collection,
-              id,
             },
           });
 
@@ -103,20 +99,12 @@ const main = async (port) => {
         }
 
         if (message.type === "unsubscribe") {
-          const { collection, id } = message.payload;
+          const { collection } = message.payload;
 
           if (!collection) {
             reply({
               reply: "unsubscribe",
               error: "`collection` must be specified",
-            });
-            return;
-          }
-
-          if (!id) {
-            reply({
-              reply: "unsubscribe",
-              error: "`id` must be specified",
             });
             return;
           }
@@ -177,8 +165,6 @@ const main = async (port) => {
             subscribers instanceof Set && subscribers.has(ws.uid)
         );
         sockets.forEach((ws) => ws.send(JSON.stringify(message)));
-
-        console.dir(event, { depth: null });
       }
     });
   } catch (e) {
