@@ -19,19 +19,18 @@ export default (collection) => {
   const registrationId: { current: string } = useRef("");
 
   useEffect(() => {
-    if (connected) {
-      if (!registrationId.current) {
-        registrationId.current = register(collection);
-      }
-
-      return () => {
-        if (registrationId.current) {
-          unregister(collection, registrationId.current);
-          registrationId.current = "";
-        }
-      };
+    if (connected && !registrationId.current) {
+      registrationId.current = register(collection);
     }
   }, [connected]);
 
-  return JSON.parse(documents);
+  useEffect(() => {
+    return () => {
+      if (registrationId.current) {
+        unregister(collection, registrationId.current);
+      }
+    };
+  }, []);
+
+  return Object.values(JSON.parse(documents));
 };

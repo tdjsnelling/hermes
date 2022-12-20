@@ -5,7 +5,10 @@ import HermesContext from "./HermesContext";
 import MemoWrapper from "./MemoWrapper";
 
 type SubscriptionsStore = {
-  [key: string]: Set<string>;
+  [key: string]: {
+    subscribed: boolean;
+    registered: Set<string>;
+  };
 };
 
 type DocumentsStore = {
@@ -53,8 +56,18 @@ const HermesProvider = ({ url, children }) => {
   const [documents, setDocuments] = useState<DocumentsStore>({});
 
   const socket: { current: WebSocket } = useRef();
-  const uid: { current: string } = useRef();
-  const prevSubscriptions: { current: SubscriptionsStore } = useRef();
+  const clientId: { current: string } = useRef();
+  const subscribeQueue: { current: Set<string> } = useRef(new Set<string>());
+
+  const subscriptionsValue = JSON.stringify(
+    Object.entries(subscriptions).reduce((acc, [collection, info]) => {
+      acc[collection] = {
+        subscribed: info.subscribed,
+        registered: Array.from(info.registered),
+      };
+      return acc;
+    }, {})
+  );
 
   const updateData = ({
     coll,
@@ -100,7 +113,7 @@ const HermesProvider = ({ url, children }) => {
       initWebsocket(url, setConnected, socket, (ws, data) => {
         if (data === "hermes") {
           const id = uuid();
-          uid.current = id;
+          clientId.current = id;
 
           ws.send(
             JSON.stringify({
@@ -121,11 +134,65 @@ const HermesProvider = ({ url, children }) => {
 
           if (message.reply === "identify") {
             if (!message.error) setConnected(true);
-          } else if (message.reply === "subscribe") {
+          }
+
+          if (message.reply === "collections") {
+            const { collections } = message.payload;
+            setDocuments((d) => {
+              const existingDocuments = { ...d };
+              for (const collection of collections) {
+                if (!existingDocuments[collection])
+                  existingDocuments[collection] = {};
+              }
+              return existingDocuments;
+            });
+          }
+
+          if (message.reply === "subscribe") {
             if (!message.error) {
-              // TODO handle?
+              const { collection } = message.payload;
+
+              subscribeQueue.current.delete(collection);
+
+              setSubscriptions((s) => {
+                const existingSubscriptions = { ...s };
+
+                if (!existingSubscriptions[collection])
+                  existingSubscriptions[collection] = {
+                    subscribed: false,
+                    registered: new Set(),
+                  };
+
+                existingSubscriptions[collection].subscribed = true;
+
+                return existingSubscriptions;
+              });
             }
-          } else if (message.reply === "data") {
+          }
+
+          if (message.reply === "unsubscribe") {
+            if (!message.error) {
+              const { collection } = message.payload;
+
+              subscribeQueue.current.delete(collection);
+
+              setSubscriptions((s) => {
+                const existingSubscriptions = { ...s };
+
+                if (!existingSubscriptions[collection])
+                  existingSubscriptions[collection] = {
+                    subscribed: false,
+                    registered: new Set(),
+                  };
+
+                existingSubscriptions[collection].subscribed = false;
+
+                return existingSubscriptions;
+              });
+            }
+          }
+
+          if (message.reply === "data") {
             updateData(message.payload);
           }
         }
@@ -140,7 +207,9 @@ const HermesProvider = ({ url, children }) => {
         return;
       }
 
-      const alreadySubscribed = subscriptions[collection]?.size > 0;
+      if (subscribeQueue.current.has(collection)) return;
+
+      const alreadySubscribed = subscriptions[collection]?.registered.size > 0;
 
       if (!alreadySubscribed) {
         socket.current.send(
@@ -159,33 +228,38 @@ const HermesProvider = ({ url, children }) => {
         const existingSubscriptions = { ...s };
 
         if (!existingSubscriptions[collection])
-          existingSubscriptions[collection] = new Set();
+          existingSubscriptions[collection] = {
+            subscribed: false,
+            registered: new Set(),
+          };
 
-        existingSubscriptions[collection].add(registrationId);
+        existingSubscriptions[collection].registered.add(registrationId);
 
         return existingSubscriptions;
       });
 
+      subscribeQueue.current.add(collection);
+
       return registrationId;
     },
-    [socket.current?.readyState, JSON.stringify(subscriptions)]
+    [socket.current?.readyState, subscriptionsValue]
   );
 
   const unregister = useCallback((collection: string, id: string) => {
+    if (subscribeQueue.current.has(collection)) return;
+
     setSubscriptions((s) => {
       const existingSubscriptions = { ...s };
-      if (existingSubscriptions[collection] instanceof Set)
-        existingSubscriptions[collection].delete(id);
+      if (existingSubscriptions[collection].registered instanceof Set) {
+        existingSubscriptions[collection].registered.delete(id);
+      }
       return existingSubscriptions;
     });
   }, []);
 
   useEffect(() => {
-    for (const [collection, registered] of Object.entries(subscriptions)) {
-      if (
-        registered.size === 0 &&
-        prevSubscriptions.current[collection]?.size > 0
-      ) {
+    for (const [collection, info] of Object.entries(subscriptions)) {
+      if (info.registered.size === 0 && info.subscribed) {
         socket.current.send(
           JSON.stringify({
             type: "unsubscribe",
@@ -202,19 +276,18 @@ const HermesProvider = ({ url, children }) => {
         });
       }
     }
-    prevSubscriptions.current = subscriptions;
-  }, [JSON.stringify(subscriptions)]);
+  }, [subscriptionsValue]);
 
   const hermesState = {
     url,
     connected,
-    uid,
+    clientId: clientId.current,
     subscriptions,
     documents,
     register,
     unregister,
   };
-  window["hermes"] = hermesState;
+  window["__hermes"] = hermesState;
 
   return (
     <HermesContext.Provider value={hermesState}>

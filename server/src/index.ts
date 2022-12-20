@@ -51,6 +51,18 @@ const main = async (port) => {
               message: `Client is known as \`${id}\``,
             },
           });
+
+          const collections = await client
+            .db(process.env.MONGO_DB)
+            .listCollections();
+          const collectionsArray = await collections.toArray();
+
+          reply({
+            reply: "collections",
+            payload: {
+              collections: collectionsArray.map((c) => c.name),
+            },
+          });
           return;
         }
 
