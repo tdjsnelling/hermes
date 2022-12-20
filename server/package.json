@@ -2,9 +2,10 @@
   "name": "@hermes/server",
   "version": "1.0.0",
   "license": "GPL-3.0-only",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/index.js\""
+    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/server.js\""
   },
   "devDependencies": {
     "@types/mongodb": "^4.0.7",

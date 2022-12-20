@@ -1,5 +1,4 @@
 import { MongoClient } from "mongodb";
-import { config } from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { Message, DataReply } from "./message-types";
 
@@ -9,7 +8,7 @@ interface WebSocketWithUid extends WebSocket {
 
 const subscriptionMap: { [key: string]: Set<string> } = {};
 
-const main = async (port) => {
+export default async ({ port = 9000 }) => {
   const client = new MongoClient(process.env.MONGO_SRV);
   const server = new WebSocketServer({
     port,
@@ -179,13 +178,9 @@ const main = async (port) => {
         sockets.forEach((ws) => ws.send(JSON.stringify(message)));
       }
     });
+
+    console.log(`hermes server running at ws://localhost:${port}`);
   } catch (e) {
-    console.error(e);
+    console.error(`hermes: error: ${e}`);
   }
 };
-
-config();
-const port = Number(process.env.PORT) || 9000;
-main(port).then(() =>
-  console.log(`hermes server running at ws://localhost:${port}`)
-);
