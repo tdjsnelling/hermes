@@ -1,4 +1,4 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, ChangeStream } from "mongodb";
 import { WebSocketServer, WebSocket } from "ws";
 import { Message, DataReply } from "./message-types";
 
@@ -6,9 +6,15 @@ interface WebSocketWithUid extends WebSocket {
   uid?: string;
 }
 
-const subscriptionMap: { [key: string]: Set<string> } = {};
+type SubscriptionMap = {
+  [key: string]: {
+    [key: string]: ChangeStream;
+  };
+};
 
 export default async ({ port = 9000 }) => {
+  const subscriptionMap: SubscriptionMap = {};
+
   const client = new MongoClient(process.env.MONGO_SRV);
   const server = new WebSocketServer({
     port,
@@ -81,10 +87,16 @@ export default async ({ port = 9000 }) => {
             return;
           }
 
-          if (!subscriptionMap[collection])
-            subscriptionMap[collection] = new Set();
+          if (!subscriptionMap[ws.uid]) subscriptionMap[ws.uid] = {};
 
-          subscriptionMap[collection].add(ws.uid);
+          const stream = client
+            .db(process.env.MONGO_DB)
+            .collection(collection)
+            .watch();
+
+          subscriptionMap[ws.uid][collection] = stream;
+
+          handleChangeStream(stream, server, ws.uid);
 
           reply({
             reply: "subscribe",
@@ -120,8 +132,10 @@ export default async ({ port = 9000 }) => {
             return;
           }
 
-          if (subscriptionMap[collection] instanceof Set)
-            subscriptionMap[collection].delete(ws.uid);
+          if (subscriptionMap[ws.uid][collection]) {
+            subscriptionMap[ws.uid][collection].close();
+            delete subscriptionMap[ws.uid][collection];
+          }
 
           reply({
             reply: "unsubscribe",
@@ -133,54 +147,54 @@ export default async ({ port = 9000 }) => {
       });
 
       ws.on("close", () => {
-        for (const subscriberSet of Object.values(subscriptionMap)) {
-          subscriberSet.delete(ws.uid);
+        for (const stream of Object.values(subscriptionMap[ws.uid] ?? {})) {
+          stream.close();
         }
+        delete subscriptionMap[ws.uid];
       });
 
       ws.send("hermes");
-    });
-
-    const stream = client.db(process.env.MONGO_DB).watch();
-    stream.on("change", (event) => {
-      if (
-        event.operationType === "insert" ||
-        event.operationType === "delete" ||
-        event.operationType === "update"
-      ) {
-        const { coll } = event.ns;
-
-        const message: DataReply = {
-          reply: "data",
-          payload: {
-            coll,
-            operation: event.operationType,
-          },
-        };
-
-        if (event.operationType === "insert")
-          message.payload.insertData = [event.fullDocument];
-        else if (event.operationType === "delete")
-          message.payload.deleteData = [event.documentKey._id.toString()];
-        else if (event.operationType === "update")
-          message.payload.updateData = [
-            {
-              _id: event.documentKey._id.toString(),
-              updateDescription: event.updateDescription,
-            },
-          ];
-
-        const subscribers = subscriptionMap[coll];
-        const sockets = Array.from(server.clients).filter(
-          (ws: WebSocketWithUid) =>
-            subscribers instanceof Set && subscribers.has(ws.uid)
-        );
-        sockets.forEach((ws) => ws.send(JSON.stringify(message)));
-      }
     });
 
     console.log(`hermes server running at ws://localhost:${port}`);
   } catch (e) {
     console.error(`hermes: error: ${e}`);
   }
+};
+
+const handleChangeStream = (stream, server, uid) => {
+  stream.on("change", (event) => {
+    if (
+      event.operationType === "insert" ||
+      event.operationType === "delete" ||
+      event.operationType === "update"
+    ) {
+      const { coll } = event.ns;
+
+      const message: DataReply = {
+        reply: "data",
+        payload: {
+          coll,
+          operation: event.operationType,
+        },
+      };
+
+      if (event.operationType === "insert")
+        message.payload.insertData = [event.fullDocument];
+      else if (event.operationType === "delete")
+        message.payload.deleteData = [event.documentKey._id.toString()];
+      else if (event.operationType === "update")
+        message.payload.updateData = [
+          {
+            _id: event.documentKey._id.toString(),
+            updateDescription: event.updateDescription,
+          },
+        ];
+
+      const ws = Array.from(server.clients).find(
+        (ws: WebSocketWithUid) => ws.uid === uid
+      ) as WebSocketWithUid;
+      ws.send(JSON.stringify(message));
+    }
+  });
 };
