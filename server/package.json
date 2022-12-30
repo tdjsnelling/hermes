@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/server.js\""
+    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/server.js\"",
+    "start": "node dist/server.js"
   },
   "devDependencies": {
     "@types/mongodb": "^4.0.7",

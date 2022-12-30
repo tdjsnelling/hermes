@@ -17,39 +17,6 @@ type DocumentsStore = {
   };
 };
 
-const initWebsocket = (url, setConnected, socketRef, handleMessage) => {
-  const ws = new WebSocket(url);
-
-  let retry;
-
-  ws.addEventListener("open", () => {
-    if (retry) {
-      clearTimeout(retry);
-      retry = undefined;
-    }
-  });
-
-  ws.addEventListener("close", () => {
-    setConnected(false);
-    socketRef.current = undefined;
-
-    if (!retry)
-      retry = setTimeout(() => {
-        initWebsocket(url, setConnected, socketRef, handleMessage);
-      }, 1000);
-  });
-
-  ws.addEventListener("error", () => {
-    ws.close();
-  });
-
-  ws.addEventListener("message", ({ data }) => {
-    handleMessage(ws, data);
-  });
-
-  socketRef.current = ws;
-};
-
 const HermesProvider = ({ url, children }) => {
   const [connected, setConnected] = useState<boolean>(false);
   const [subscriptions, setSubscriptions] = useState<SubscriptionsStore>({});
@@ -58,6 +25,7 @@ const HermesProvider = ({ url, children }) => {
   const socket: { current: WebSocket } = useRef();
   const clientId: { current: string } = useRef();
   const subscribeQueue: { current: Set<string> } = useRef(new Set<string>());
+  const retry: { current: ReturnType<typeof setTimeout> } = useRef();
 
   const subscriptionsValue = JSON.stringify(
     Object.entries(subscriptions).reduce((acc, [collection, info]) => {
@@ -68,6 +36,33 @@ const HermesProvider = ({ url, children }) => {
       return acc;
     }, {})
   );
+
+  const initWebsocket = (handleMessage) => {
+    if (retry.current) {
+      clearTimeout(retry.current);
+      retry.current = undefined;
+    }
+
+    const ws = new WebSocket(url);
+
+    ws.addEventListener("close", () => {
+      setConnected(false);
+      if (!retry.current)
+        retry.current = setTimeout(() => {
+          initWebsocket(handleMessage);
+        }, 1000);
+    });
+
+    ws.addEventListener("error", () => {
+      ws.close();
+    });
+
+    ws.addEventListener("message", ({ data }) => {
+      handleMessage(ws, data);
+    });
+
+    socket.current = ws;
+  };
 
   const updateData = ({
     coll,
@@ -109,95 +104,97 @@ const HermesProvider = ({ url, children }) => {
   };
 
   useEffect(() => {
-    if (!connected && !socket.current) {
-      initWebsocket(url, setConnected, socket, (ws, data) => {
-        if (data === "hermes") {
-          const id = uuid();
-          clientId.current = id;
+    initWebsocket((ws, data) => {
+      if (data === "hermes") {
+        const id = uuid();
+        clientId.current = id;
 
-          ws.send(
-            JSON.stringify({
-              type: "identify",
-              payload: {
-                id,
-              },
-            })
-          );
-        } else {
-          let message;
-          try {
-            message = JSON.parse(data);
-          } catch (e) {
-            console.error("hermes: error: message is not valid json");
-            return;
-          }
+        ws.send(
+          JSON.stringify({
+            type: "identify",
+            payload: {
+              id,
+            },
+          })
+        );
+      } else {
+        let message;
+        try {
+          message = JSON.parse(data);
+        } catch (e) {
+          console.error("hermes: error: message is not valid json");
+          return;
+        }
 
-          if (message.reply === "identify") {
-            if (!message.error) setConnected(true);
-          }
+        if (message.reply === "identify") {
+          if (!message.error) setConnected(true);
+        }
 
-          if (message.reply === "collections") {
-            const { collections } = message.payload;
-            setDocuments((d) => {
-              const existingDocuments = { ...d };
-              for (const collection of collections) {
-                if (!existingDocuments[collection])
-                  existingDocuments[collection] = {};
-              }
-              return existingDocuments;
+        if (message.reply === "collections") {
+          const { collections } = message.payload;
+          setDocuments((d) => {
+            const existingDocuments = { ...d };
+            for (const collection of collections) {
+              if (!existingDocuments[collection])
+                existingDocuments[collection] = {};
+            }
+            return existingDocuments;
+          });
+        }
+
+        if (message.reply === "subscribe") {
+          if (!message.error) {
+            const { collection } = message.payload;
+
+            subscribeQueue.current.delete(collection);
+
+            setSubscriptions((s) => {
+              const existingSubscriptions = { ...s };
+
+              if (!existingSubscriptions[collection])
+                existingSubscriptions[collection] = {
+                  subscribed: false,
+                  registered: new Set(),
+                };
+
+              existingSubscriptions[collection].subscribed = true;
+
+              return existingSubscriptions;
             });
           }
+        }
 
-          if (message.reply === "subscribe") {
-            if (!message.error) {
-              const { collection } = message.payload;
+        if (message.reply === "unsubscribe") {
+          if (!message.error) {
+            const { collection } = message.payload;
 
-              subscribeQueue.current.delete(collection);
+            subscribeQueue.current.delete(collection);
 
-              setSubscriptions((s) => {
-                const existingSubscriptions = { ...s };
+            setSubscriptions((s) => {
+              const existingSubscriptions = { ...s };
 
-                if (!existingSubscriptions[collection])
-                  existingSubscriptions[collection] = {
-                    subscribed: false,
-                    registered: new Set(),
-                  };
+              if (!existingSubscriptions[collection])
+                existingSubscriptions[collection] = {
+                  subscribed: false,
+                  registered: new Set(),
+                };
 
-                existingSubscriptions[collection].subscribed = true;
+              existingSubscriptions[collection].subscribed = false;
 
-                return existingSubscriptions;
-              });
-            }
-          }
-
-          if (message.reply === "unsubscribe") {
-            if (!message.error) {
-              const { collection } = message.payload;
-
-              subscribeQueue.current.delete(collection);
-
-              setSubscriptions((s) => {
-                const existingSubscriptions = { ...s };
-
-                if (!existingSubscriptions[collection])
-                  existingSubscriptions[collection] = {
-                    subscribed: false,
-                    registered: new Set(),
-                  };
-
-                existingSubscriptions[collection].subscribed = false;
-
-                return existingSubscriptions;
-              });
-            }
-          }
-
-          if (message.reply === "data") {
-            updateData(message.payload);
+              return existingSubscriptions;
+            });
           }
         }
-      });
-    }
+
+        if (message.reply === "data") {
+          updateData(message.payload);
+        }
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (connected) console.log(subscriptions);
   }, [connected]);
 
   const register = useCallback(
@@ -250,7 +247,7 @@ const HermesProvider = ({ url, children }) => {
 
     setSubscriptions((s) => {
       const existingSubscriptions = { ...s };
-      if (existingSubscriptions[collection].registered instanceof Set) {
+      if (existingSubscriptions[collection]?.registered instanceof Set) {
         existingSubscriptions[collection].registered.delete(id);
       }
       return existingSubscriptions;
@@ -258,22 +255,24 @@ const HermesProvider = ({ url, children }) => {
   }, []);
 
   useEffect(() => {
-    for (const [collection, info] of Object.entries(subscriptions)) {
-      if (info.registered.size === 0 && info.subscribed) {
-        socket.current.send(
-          JSON.stringify({
-            type: "unsubscribe",
-            payload: {
-              collection,
-            },
-          })
-        );
+    if (connected) {
+      for (const [collection, info] of Object.entries(subscriptions)) {
+        if (info.registered.size === 0 && info.subscribed) {
+          socket.current.send(
+            JSON.stringify({
+              type: "unsubscribe",
+              payload: {
+                collection,
+              },
+            })
+          );
 
-        setDocuments((d) => {
-          const existingDocuments = { ...d };
-          existingDocuments[collection] = {};
-          return existingDocuments;
-        });
+          setDocuments((d) => {
+            const existingDocuments = { ...d };
+            existingDocuments[collection] = {};
+            return existingDocuments;
+          });
+        }
       }
     }
   }, [subscriptionsValue]);

@@ -23,8 +23,10 @@ export default (collection: string, modifier?: Function): object[] => {
   const registrationId: { current: string } = useRef("");
 
   useEffect(() => {
-    if (connected && !registrationId.current) {
+    if (connected) {
       registrationId.current = register(collection);
+    } else {
+      unregister(collection, registrationId.current);
     }
   }, [connected]);
 
