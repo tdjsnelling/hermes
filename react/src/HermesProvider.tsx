@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import HermesContext from "./HermesContext";
 import MemoWrapper from "./MemoWrapper";
 
-type SubscriptionsStore = {
+export type SubscriptionsStore = {
   [key: string]: {
     subscribed: boolean;
     registered: Set<string>;
@@ -193,10 +193,6 @@ const HermesProvider = ({ url, children }) => {
     });
   }, []);
 
-  useEffect(() => {
-    if (connected) console.log(subscriptions);
-  }, [connected]);
-
   const register = useCallback(
     (collection: string) => {
       if (!socket.current || socket.current.readyState !== 1) {
@@ -206,23 +202,24 @@ const HermesProvider = ({ url, children }) => {
 
       if (subscribeQueue.current.has(collection)) return;
 
-      const alreadySubscribed = subscriptions[collection]?.registered.size > 0;
-
-      if (!alreadySubscribed) {
-        socket.current.send(
-          JSON.stringify({
-            type: "subscribe",
-            payload: {
-              collection,
-            },
-          })
-        );
-      }
-
       const registrationId = uuid();
 
       setSubscriptions((s) => {
         const existingSubscriptions = { ...s };
+
+        const alreadySubscribed =
+          existingSubscriptions[collection]?.registered.size > 0;
+
+        if (!alreadySubscribed) {
+          socket.current.send(
+            JSON.stringify({
+              type: "subscribe",
+              payload: {
+                collection,
+              },
+            })
+          );
+        }
 
         if (!existingSubscriptions[collection])
           existingSubscriptions[collection] = {
@@ -239,12 +236,10 @@ const HermesProvider = ({ url, children }) => {
 
       return registrationId;
     },
-    [socket.current?.readyState, subscriptionsValue]
+    [socket.current?.readyState]
   );
 
   const unregister = useCallback((collection: string, id: string) => {
-    if (subscribeQueue.current.has(collection)) return;
-
     setSubscriptions((s) => {
       const existingSubscriptions = { ...s };
       if (existingSubscriptions[collection]?.registered instanceof Set) {
