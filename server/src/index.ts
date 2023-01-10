@@ -39,7 +39,6 @@ export default async ({ port = 9000 }) => {
           message = JSON.parse(data.toString());
         } catch (e) {
           reply({ reply: "none", error: "Message must be valid JSON" });
-          ws.close();
           return;
         }
 
@@ -77,7 +76,7 @@ export default async ({ port = 9000 }) => {
         }
 
         if (message.type === "subscribe") {
-          const { collection } = message.payload;
+          const { collection, query } = message.payload;
 
           if (!collection) {
             reply({
@@ -89,10 +88,12 @@ export default async ({ port = 9000 }) => {
 
           if (!subscriptionMap[ws.uid]) subscriptionMap[ws.uid] = {};
 
+          const pipeline = query ?? [];
+
           const stream = client
             .db(process.env.MONGO_DB)
             .collection(collection)
-            .watch();
+            .watch(pipeline);
 
           subscriptionMap[ws.uid][collection] = stream;
 
@@ -108,7 +109,7 @@ export default async ({ port = 9000 }) => {
           const docs = await client
             .db(process.env.MONGO_DB)
             .collection(collection)
-            .find({})
+            .aggregate(pipeline)
             .toArray();
 
           reply({

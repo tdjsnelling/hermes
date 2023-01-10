@@ -22,6 +22,7 @@ type PIdentify = {
 
 type PSubscribe = {
   collection: string;
+  query?: object[];
 };
 
 type PUnsubscribe = {

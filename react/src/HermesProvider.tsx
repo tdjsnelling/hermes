@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import PropTypes from "prop-types";
-import { v4 as uuid } from "uuid";
+import { v4, v5 } from "uuid";
 import HermesContext from "./HermesContext";
 import MemoWrapper from "./MemoWrapper";
 
@@ -17,6 +17,8 @@ type DocumentsStore = {
   };
 };
 
+const NAMESPACE = "c07d54d6-9f61-436b-a1da-e0059a6b5530";
+
 const HermesProvider = ({ url, children }) => {
   const [connected, setConnected] = useState<boolean>(false);
   const [subscriptions, setSubscriptions] = useState<SubscriptionsStore>({});
@@ -24,7 +26,6 @@ const HermesProvider = ({ url, children }) => {
 
   const socket: { current: WebSocket } = useRef();
   const clientId: { current: string } = useRef();
-  const subscribeQueue: { current: Set<string> } = useRef(new Set<string>());
   const retry: { current: ReturnType<typeof setTimeout> } = useRef();
 
   const subscriptionsValue = JSON.stringify(
@@ -106,7 +107,7 @@ const HermesProvider = ({ url, children }) => {
   useEffect(() => {
     initWebsocket((ws, data) => {
       if (data === "hermes") {
-        const id = uuid();
+        const id = v4();
         clientId.current = id;
 
         ws.send(
@@ -146,8 +147,6 @@ const HermesProvider = ({ url, children }) => {
           if (!message.error) {
             const { collection } = message.payload;
 
-            subscribeQueue.current.delete(collection);
-
             setSubscriptions((s) => {
               const existingSubscriptions = { ...s };
 
@@ -167,8 +166,6 @@ const HermesProvider = ({ url, children }) => {
         if (message.reply === "unsubscribe") {
           if (!message.error) {
             const { collection } = message.payload;
-
-            subscribeQueue.current.delete(collection);
 
             setSubscriptions((s) => {
               const existingSubscriptions = { ...s };
@@ -194,32 +191,36 @@ const HermesProvider = ({ url, children }) => {
   }, []);
 
   const register = useCallback(
-    (collection: string) => {
+    (collection: string, query?: object[]) => {
       if (!socket.current || socket.current.readyState !== 1) {
         console.error("hermes: error: no active websocket connection");
         return;
       }
 
-      if (subscribeQueue.current.has(collection)) return;
+      let registrationId = v5(
+        `${collection},${JSON.stringify(query)}`,
+        NAMESPACE
+      );
 
-      const registrationId = uuid();
+      const alreadySubscribed = Array.from(
+        subscriptions[collection]?.registered ?? []
+      ).filter((id) => id.startsWith(registrationId));
+
+      registrationId = `${registrationId}_${alreadySubscribed.length}`;
+
+      if (!alreadySubscribed.length)
+        socket.current.send(
+          JSON.stringify({
+            type: "subscribe",
+            payload: {
+              collection,
+              query,
+            },
+          })
+        );
 
       setSubscriptions((s) => {
         const existingSubscriptions = { ...s };
-
-        const alreadySubscribed =
-          existingSubscriptions[collection]?.registered.size > 0;
-
-        if (!alreadySubscribed) {
-          socket.current.send(
-            JSON.stringify({
-              type: "subscribe",
-              payload: {
-                collection,
-              },
-            })
-          );
-        }
 
         if (!existingSubscriptions[collection])
           existingSubscriptions[collection] = {
@@ -232,14 +233,16 @@ const HermesProvider = ({ url, children }) => {
         return existingSubscriptions;
       });
 
-      subscribeQueue.current.add(collection);
+      console.log(`register ${registrationId}`);
 
       return registrationId;
     },
-    [socket.current?.readyState]
+    [socket.current?.readyState, subscriptionsValue]
   );
 
   const unregister = useCallback((collection: string, id: string) => {
+    console.log(`unregister ${id}`);
+
     setSubscriptions((s) => {
       const existingSubscriptions = { ...s };
       if (existingSubscriptions[collection]?.registered instanceof Set) {
@@ -271,6 +274,8 @@ const HermesProvider = ({ url, children }) => {
       }
     }
   }, [subscriptionsValue]);
+
+  console.log(subscriptions);
 
   const hermesState = {
     url,

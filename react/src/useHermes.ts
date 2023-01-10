@@ -2,7 +2,11 @@ import { useRef, useEffect } from "react";
 import { useContextSelector } from "use-context-selector";
 import HermesContext from "./HermesContext";
 
-export default (collection: string, modifier?: Function): object[] => {
+export default (
+  collection: string,
+  query?: object[],
+  modifier?: Function
+): object[] => {
   const connected = useContextSelector(
     HermesContext,
     (value) => value.connected
@@ -24,7 +28,7 @@ export default (collection: string, modifier?: Function): object[] => {
 
   useEffect(() => {
     if (connected) {
-      registrationId.current = register(collection);
+      registrationId.current = register(collection, query);
     } else {
       unregister(collection, registrationId.current);
     }
