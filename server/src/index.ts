@@ -12,10 +12,18 @@ type SubscriptionMap = {
   };
 };
 
-export default async ({ port = 9000 }) => {
+export default async ({
+  port = 9000,
+  srv,
+  db,
+}: {
+  port?: number;
+  srv: string;
+  db: string;
+}) => {
   const subscriptionMap: SubscriptionMap = {};
 
-  const client = new MongoClient(process.env.MONGO_SRV);
+  const client = new MongoClient(srv);
   const server = new WebSocketServer({
     port,
   });
@@ -57,9 +65,7 @@ export default async ({ port = 9000 }) => {
             },
           });
 
-          const collections = await client
-            .db(process.env.MONGO_DB)
-            .listCollections();
+          const collections = await client.db(db).listCollections();
           const collectionsArray = await collections.toArray();
 
           reply({
@@ -89,10 +95,7 @@ export default async ({ port = 9000 }) => {
 
           if (!subscriptionMap[ws.uid]) subscriptionMap[ws.uid] = {};
 
-          const stream = client
-            .db(process.env.MONGO_DB)
-            .collection(collection)
-            .watch();
+          const stream = client.db(db).collection(collection).watch();
 
           subscriptionMap[ws.uid][collection] = stream;
 
@@ -106,7 +109,7 @@ export default async ({ port = 9000 }) => {
           });
 
           const docs = await client
-            .db(process.env.MONGO_DB)
+            .db(db)
             .collection(collection)
             .find({})
             .toArray();
