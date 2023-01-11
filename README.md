@@ -8,4 +8,4 @@ Hermes comes in 2 parts:
 
 ## License
 
-TBD
+[GNU GPLv3](https://github.com/tdjsnelling/hermes/blob/master/LICENSE)

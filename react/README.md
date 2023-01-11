@@ -76,7 +76,7 @@ The important feature of this pattern is that the hook will only update (and thu
 
 ### `useHermesState`
 
-The `useHermesState` returns some potentially useful information around the internal state of the Hermes provider.
+The `useHermesState` hook returns some potentially useful information around the internal state of the Hermes provider.
 
 ```javascript
 import React from "react";
