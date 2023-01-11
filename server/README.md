@@ -17,13 +17,13 @@ Install with `yarn add @hermes/server` or `npm install @hermes/server`.
 In your code, initialise the server with valid options:
 
 ```javascript
-import hermes from "@hermes/server"
+import hermes from "@hermes/server";
 
 hermes({
   port: 1234,               // Port to serve on (default 9000)
-  srv: 'mongodb+srv://...', // SRV of your MongoDB instance
-  db: 'my_db'               // Name of your desired database
-})
+  srv: "mongodb+srv://...", // SRV of your MongoDB instance
+  db: "my_db"               // Name of your desired database
+});
 ```
 
 ### Running as a standalone Docker service

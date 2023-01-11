@@ -8,6 +8,8 @@ Hermes comes in 2 parts:
 
 ## React
 
+Install with `yarn add @hermes/react` or `npm install @hermes/react`.
+
 ### `HermesProvider`
 
 To use Hermes in your React application, you will first need to wrap your application with the provider component `HermesProvider`. This should go somewhere at the root of your application structure.
@@ -39,13 +41,15 @@ The most basic usage is to just pass the name of the collection you want to retu
 import React from "react";
 import { useHermes } from "@hermes/react";
 
-const users = useHermes("users");
+const Component = () => {
+  const users = useHermes("users");
 
-return (
-  <pre>
-    {JSON.stringify(users, null, 2)}
-  </pre>
-)
+  return (
+    <pre>
+      {JSON.stringify(users, null, 2)}
+    </pre>
+  );
+}
 ```
 
 In the background, Hermes will handle registering the hook with the provider, sending a 'subscribe' message to the server, and receiving documents and changes as they occur in real-time. When the component is unmounted, the hook will be de-registered. If there are no remaining registered hooks for a specific collection, that collection will also be unsubscribed from.
@@ -78,7 +82,11 @@ The `useHermesState` returns some potentially useful information around the inte
 import React from "react";
 import { useHermesState } from "@hermes/react";
 
-const { url, connected, clientId, subscriptions } = useHermesState();
+const Component = () => {
+  const { url, connected, clientId, subscriptions } = useHermesState();
+  
+  ...
+}
 ```
 
 | Key             | Description                                                          |
