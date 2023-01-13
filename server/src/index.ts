@@ -10,7 +10,7 @@ interface WebSocketWithUid extends WebSocket {
 type SubscriptionMap = {
   [key: string]: {
     [key: string]: {
-      [key: string]: Function;
+      [key: string]: GenericListener;
     };
   };
 };
@@ -182,10 +182,10 @@ export default async ({
           }
 
           if (subscriptionMap[ws.uid][collection][registrationId]) {
-            const handler = subscriptionMap[ws.uid][collection][
-              registrationId
-            ] as GenericListener;
-            globalStream.removeListener("change", handler);
+            globalStream.removeListener(
+              "change",
+              subscriptionMap[ws.uid][collection][registrationId]
+            );
             delete subscriptionMap[ws.uid][collection][registrationId];
           }
 
@@ -202,7 +202,7 @@ export default async ({
       ws.on("close", () => {
         for (const collection of Object.values(subscriptionMap[ws.uid] ?? {})) {
           for (const handler of Object.values(collection)) {
-            globalStream.removeListener("change", handler as GenericListener);
+            globalStream.removeListener("change", handler);
           }
         }
         delete subscriptionMap[ws.uid];
