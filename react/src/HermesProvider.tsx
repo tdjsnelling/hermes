@@ -11,9 +11,12 @@ export type SubscriptionsStore = {
   };
 };
 
-type DocumentsStore = {
+export type DocumentsStore = {
   [key: string]: {
-    [key: string]: Partial<{ _id: string }>;
+    [key: string]: Partial<{
+      _id: string;
+      _hermes_registrationIds: Set<string>;
+    }>;
   };
 };
 
@@ -67,35 +70,40 @@ const HermesProvider = ({ url, children }) => {
 
   const updateData = ({
     coll,
+    registrationId,
     operation,
     insertData,
     deleteData,
-    updateData,
   }) => {
     setDocuments((d) => {
-      const existingDocuments = { ...d };
+      const existingDocuments: DocumentsStore = { ...d };
       if (!existingDocuments[coll]) existingDocuments[coll] = {};
 
       if (operation === "insert") {
         for (const doc of insertData) {
-          existingDocuments[coll][doc._id] = doc;
+          const mergedDoc = { ...doc, _hermes_registrationIds: new Set() };
+
+          if (existingDocuments[coll][doc._id])
+            mergedDoc._hermes_registrationIds =
+              existingDocuments[coll][doc._id]._hermes_registrationIds;
+
+          mergedDoc._hermes_registrationIds.add(registrationId);
+
+          existingDocuments[coll][doc._id] = mergedDoc;
         }
       } else if (operation === "delete") {
-        for (const _id of deleteData) {
-          delete existingDocuments[coll][_id];
-        }
-      } else if (operation === "update") {
-        for (const update of updateData) {
-          const { _id, updateDescription } = update;
+        for (const deletion of deleteData) {
+          const { _id, registrationId: deleteRegistrationId } = deletion;
 
-          for (const [field, value] of Object.entries(
-            updateDescription.updatedFields
-          )) {
-            existingDocuments[coll][_id][field] = value;
-          }
+          if (deleteRegistrationId) {
+            existingDocuments[coll][_id]._hermes_registrationIds.delete(
+              deleteRegistrationId
+            );
 
-          for (const field of updateDescription.removedFields) {
-            delete existingDocuments[coll][_id][field];
+            if (existingDocuments[coll][_id]._hermes_registrationIds.size === 0)
+              delete existingDocuments[coll][_id];
+          } else {
+            delete existingDocuments[coll][_id];
           }
         }
       }
@@ -134,11 +142,13 @@ const HermesProvider = ({ url, children }) => {
         if (message.reply === "collections") {
           const { collections } = message.payload;
           setDocuments((d) => {
-            const existingDocuments = { ...d };
+            const existingDocuments: DocumentsStore = { ...d };
+
             for (const collection of collections) {
               if (!existingDocuments[collection])
                 existingDocuments[collection] = {};
             }
+
             return existingDocuments;
           });
         }
@@ -148,7 +158,7 @@ const HermesProvider = ({ url, children }) => {
             const { collection } = message.payload;
 
             setSubscriptions((s) => {
-              const existingSubscriptions = { ...s };
+              const existingSubscriptions: SubscriptionsStore = { ...s };
 
               if (!existingSubscriptions[collection])
                 existingSubscriptions[collection] = {
@@ -165,10 +175,10 @@ const HermesProvider = ({ url, children }) => {
 
         if (message.reply === "unsubscribe") {
           if (!message.error) {
-            const { collection } = message.payload;
+            const { collection, registrationId } = message.payload;
 
             setSubscriptions((s) => {
-              const existingSubscriptions = { ...s };
+              const existingSubscriptions: SubscriptionsStore = { ...s };
 
               if (!existingSubscriptions[collection])
                 existingSubscriptions[collection] = {
@@ -176,9 +186,26 @@ const HermesProvider = ({ url, children }) => {
                   registered: new Set(),
                 };
 
-              existingSubscriptions[collection].subscribed = false;
+              if (existingSubscriptions[collection].registered.size === 0)
+                existingSubscriptions[collection].subscribed = false;
 
               return existingSubscriptions;
+            });
+
+            setDocuments((d) => {
+              const existingDocuments: DocumentsStore = { ...d };
+
+              for (const [_id, doc] of Object.entries(
+                existingDocuments[collection]
+              )) {
+                console.log(doc);
+                doc._hermes_registrationIds.delete(registrationId);
+                if (doc._hermes_registrationIds.size === 0) {
+                  delete existingDocuments[collection][_id];
+                }
+              }
+
+              return existingDocuments;
             });
           }
         }
@@ -206,8 +233,6 @@ const HermesProvider = ({ url, children }) => {
         subscriptions[collection]?.registered ?? []
       ).filter((id) => id.startsWith(registrationId));
 
-      registrationId = `${registrationId}_${alreadySubscribed.length}`;
-
       if (!alreadySubscribed.length)
         socket.current.send(
           JSON.stringify({
@@ -215,12 +240,15 @@ const HermesProvider = ({ url, children }) => {
             payload: {
               collection,
               query,
+              registrationId,
             },
           })
         );
 
+      registrationId = `${registrationId}_${alreadySubscribed.length}`;
+
       setSubscriptions((s) => {
-        const existingSubscriptions = { ...s };
+        const existingSubscriptions: SubscriptionsStore = { ...s };
 
         if (!existingSubscriptions[collection])
           existingSubscriptions[collection] = {
@@ -240,42 +268,41 @@ const HermesProvider = ({ url, children }) => {
     [socket.current?.readyState, subscriptionsValue]
   );
 
-  const unregister = useCallback((collection: string, id: string) => {
-    console.log(`unregister ${id}`);
+  const unregister = useCallback(
+    (collection: string, registrationId: string) => {
+      console.log(`unregister ${registrationId}`);
 
-    setSubscriptions((s) => {
-      const existingSubscriptions = { ...s };
-      if (existingSubscriptions[collection]?.registered instanceof Set) {
-        existingSubscriptions[collection].registered.delete(id);
-      }
-      return existingSubscriptions;
-    });
-  }, []);
+      setSubscriptions((s) => {
+        const existingSubscriptions: SubscriptionsStore = { ...s };
 
-  useEffect(() => {
-    if (connected) {
-      for (const [collection, info] of Object.entries(subscriptions)) {
-        if (info.registered.size === 0 && info.subscribed) {
-          socket.current.send(
-            JSON.stringify({
-              type: "unsubscribe",
-              payload: {
-                collection,
-              },
-            })
-          );
+        if (existingSubscriptions[collection]?.registered instanceof Set) {
+          existingSubscriptions[collection].registered.delete(registrationId);
 
-          setDocuments((d) => {
-            const existingDocuments = { ...d };
-            existingDocuments[collection] = {};
-            return existingDocuments;
-          });
+          const [rootId] = registrationId.split("_");
+
+          if (
+            existingSubscriptions[collection].subscribed &&
+            Array.from(existingSubscriptions[collection].registered).filter(
+              (id) => id.startsWith(rootId)
+            ).length === 0
+          ) {
+            socket.current.send(
+              JSON.stringify({
+                type: "unsubscribe",
+                payload: {
+                  collection,
+                  registrationId: rootId,
+                },
+              })
+            );
+          }
         }
-      }
-    }
-  }, [subscriptionsValue]);
 
-  console.log(subscriptions);
+        return existingSubscriptions;
+      });
+    },
+    []
+  );
 
   const hermesState = {
     url,
