@@ -15,10 +15,18 @@ type SubscriptionMap = {
   };
 };
 
-export default async ({ port = 9000 }) => {
+export default async ({
+  port = 9000,
+  srv,
+  db,
+}: {
+  port?: number;
+  srv: string;
+  db: string;
+}) => {
   const subscriptionMap: SubscriptionMap = {};
 
-  const client = new MongoClient(process.env.MONGO_SRV);
+  const client = new MongoClient(srv);
   const server = new WebSocketServer({
     port,
   });
@@ -27,7 +35,7 @@ export default async ({ port = 9000 }) => {
     await client.connect();
     console.log("hermes: connected to mongo database");
 
-    const globalStream = client.db(process.env.MONGO_DB).watch(
+    const globalStream = client.db(db).watch(
       [
         {
           $match: {
@@ -75,9 +83,7 @@ export default async ({ port = 9000 }) => {
             },
           });
 
-          const collections = await client
-            .db(process.env.MONGO_DB)
-            .listCollections();
+          const collections = await client.db(db).listCollections();
           const collectionsArray = await collections.toArray();
 
           reply({
@@ -121,7 +127,7 @@ export default async ({ port = 9000 }) => {
 
           const handler = getChangeStreamHandler(
             server,
-            client.db(process.env.MONGO_DB).collection(collection),
+            client.db(db).collection(collection),
             ws.uid,
             registrationId,
             pipeline
@@ -140,7 +146,7 @@ export default async ({ port = 9000 }) => {
           });
 
           const docs = await client
-            .db(process.env.MONGO_DB)
+            .db(db)
             .collection(collection)
             .aggregate(pipeline)
             .toArray();
