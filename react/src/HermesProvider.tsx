@@ -95,6 +95,8 @@ const HermesProvider = ({ url, children }) => {
         for (const deletion of deleteData) {
           const { _id, registrationId: deleteRegistrationId } = deletion;
 
+          if (!existingDocuments[coll][_id]) return;
+
           if (deleteRegistrationId) {
             existingDocuments[coll][_id]._hermes_registrationIds.delete(
               deleteRegistrationId
@@ -198,7 +200,6 @@ const HermesProvider = ({ url, children }) => {
               for (const [_id, doc] of Object.entries(
                 existingDocuments[collection]
               )) {
-                console.log(doc);
                 doc._hermes_registrationIds.delete(registrationId);
                 if (doc._hermes_registrationIds.size === 0) {
                   delete existingDocuments[collection][_id];
@@ -261,8 +262,6 @@ const HermesProvider = ({ url, children }) => {
         return existingSubscriptions;
       });
 
-      console.log(`register ${registrationId}`);
-
       return registrationId;
     },
     [socket.current?.readyState, subscriptionsValue]
@@ -270,8 +269,6 @@ const HermesProvider = ({ url, children }) => {
 
   const unregister = useCallback(
     (collection: string, registrationId: string) => {
-      console.log(`unregister ${registrationId}`);
-
       setSubscriptions((s) => {
         const existingSubscriptions: SubscriptionsStore = { ...s };
 

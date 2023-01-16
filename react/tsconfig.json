@@ -5,8 +5,9 @@
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "Node",
     "jsx": "react",
-    "sourceMap": true
+    "sourceMap": true,
+    "declaration": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "exclude": ["node_modules", "**/*.spec.ts", "dist"]
 }

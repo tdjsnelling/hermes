@@ -1,13 +1,14 @@
 import { useRef, useEffect } from "react";
 import { useContextSelector } from "use-context-selector";
+import { Document } from "mongodb";
 import HermesContext from "./HermesContext";
 import { DocumentsStore } from "./HermesProvider";
 
 export default (
   collection: string,
-  query?: object[],
-  modifier?: Function
-): object[] => {
+  query?: Document[],
+  modifier?: (documents: Document[]) => Document[]
+): Document[] => {
   const registrationId: { current: string } = useRef("");
 
   const connected = useContextSelector(
