@@ -4,11 +4,7 @@ import { Document } from "mongodb";
 import HermesContext from "./HermesContext";
 import { DocumentsStore } from "./HermesProvider";
 
-export default (
-  collection: string,
-  query?: Document[],
-  modifier?: (documents: Document[]) => Document[]
-): Document[] => {
+export default (collection: string, query?: Document[]): Document[] => {
   const registrationId: { current: string } = useRef("");
 
   const connected = useContextSelector(
@@ -30,9 +26,7 @@ export default (
         delete clone._hermes_registrationIds;
         return clone;
       });
-    return JSON.stringify(
-      typeof modifier === "function" ? modifier(documentsArray) : documentsArray
-    );
+    return JSON.stringify(documentsArray);
   });
 
   useEffect(() => {

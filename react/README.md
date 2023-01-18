@@ -56,23 +56,27 @@ In the background, Hermes will handle registering the hook with the provider, se
 
 #### MongoDB query pipelines
 
-TODO
+As a second argument, the `useHermes` hook can take a MongoDB [aggregate pipeline](https://www.mongodb.com/docs/manual/core/aggregation-pipeline/). This allows you filter (and perform other operations on) the documents that are returned to the client and updated in real-time.
 
-#### Modifier functions
-
-As a second argument, the `useHermes` hook can take a 'modifier function'. These are functions that effect which documents will be returned by the hook.
-
-For example, if you only wanted to see (and receive real-time updates for) the latest 10 documents for a collection, you could do:
+For example: to filter, sort, and return only 10 documents from the "users" collection, you could use:
 
 ```javascript
-const sortCreatedAt = (a, b) => { ... };
-
-const users = useHermes("users", (documents) => {
-  return documents.sort(sortCreatedAt).slice(0, 10);
-});
+const users = useHermes("users", [
+  {
+    $match: { verified: true }
+  },
+  {
+    $sort: { createdAt: -1 }
+  },
+  {
+    $limit: 10
+  }
+]);
 ```
 
-The important feature of this pattern is that the hook will only update (and thus the component will only re-render) when the documents returned by the modifier function change. If you returned all documents in a collection from the hook and then performed a `slice` afterwards, the component would re-render when *any* document in that collection was updated.
+Only the resulting documents will be returned by the `useHermes` hook. Importantly, real-time updates will only be sent and the component using the hook will only re-render when the returned documents change; any other changes within the same collection will be ignored.
+
+You can have multiple hooks subscribed to the same collection using different queries. If 2 hooks return some identical documents, they will be de-duped to reduce the size of the client-side document storage.
 
 ### `useHermesState`
 
