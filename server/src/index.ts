@@ -19,10 +19,12 @@ export default async ({
   port = 9000,
   srv,
   db,
+  whitelist = {},
 }: {
   port?: number;
   srv: string;
   db: string;
+  whitelist?: { [key: string]: string[] };
 }) => {
   const subscriptionMap: SubscriptionMap = {};
 
@@ -46,8 +48,8 @@ export default async ({
             ],
           },
         },
-      ],
-      { fullDocument: "updateLookup" }
+      ]
+      //{ fullDocument: "updateLookup" }
     );
 
     server.on("connection", (ws: WebSocketWithUid) => {
@@ -119,17 +121,37 @@ export default async ({
             return;
           }
 
+          if (!Object.keys(whitelist).includes(collection)) {
+            reply({
+              reply: "subscribe",
+              error: `"${collection}" is not a whitelisted collection`,
+            });
+            return;
+          }
+
           if (!subscriptionMap[ws.uid]) subscriptionMap[ws.uid] = {};
           if (!subscriptionMap[ws.uid][collection])
             subscriptionMap[ws.uid][collection] = {};
 
-          const pipeline = query ?? [];
+          const whitelistedFields = whitelist[collection];
+
+          let pipeline = query ?? [];
+          pipeline = [
+            {
+              $project: whitelistedFields.reduce((acc, cur) => {
+                acc[cur] = 1;
+                return acc;
+              }, {}),
+            },
+            ...pipeline,
+          ];
 
           const handler = getChangeStreamHandler(
             server,
             client.db(db).collection(collection),
             ws.uid,
             registrationId,
+            whitelistedFields,
             pipeline
           );
 
@@ -222,6 +244,7 @@ const getChangeStreamHandler = (
   dbCollection,
   uid,
   registrationId,
+  whitelistedFields,
   pipeline
 ) => {
   const send = (message) => {
@@ -244,6 +267,8 @@ const getChangeStreamHandler = (
     };
 
     if (event.operationType === "insert" || event.operationType === "update") {
+      let matchedDocument;
+
       if (pipeline.length) {
         const scopedPipeline = [
           {
@@ -254,9 +279,22 @@ const getChangeStreamHandler = (
           ...pipeline,
         ];
 
-        const [matchedDocument] = await dbCollection
+        [matchedDocument] = await dbCollection
           .aggregate(scopedPipeline)
           .toArray();
+
+        if (event.operationType === "update") {
+          const updatedKeys = [
+            ...Object.keys(event.updateDescription.updatedFields),
+            ...event.updateDescription.removedFields,
+          ];
+          const updateIsRelevant = updatedKeys.some(
+            (key) =>
+              whitelistedFields.includes(key) ||
+              whitelistedFields.some((wlKey) => wlKey.startsWith(`${key}.`))
+          );
+          if (!updateIsRelevant) return;
+        }
 
         if (!matchedDocument) {
           message.payload.operation = "delete";
@@ -269,7 +307,7 @@ const getChangeStreamHandler = (
       }
 
       message.payload.operation = "insert";
-      message.payload.insertData = [event.fullDocument];
+      message.payload.insertData = [matchedDocument];
     }
 
     if (event.operationType === "delete") {
