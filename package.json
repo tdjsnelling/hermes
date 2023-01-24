@@ -9,7 +9,6 @@
   "workspaces": [
     "server",
     "react",
-    "demo"
-  ],
-  "dependencies": {}
+    "test"
+  ]
 }
