@@ -8,10 +8,6 @@ Hermes comes in 2 parts:
 
 ## Server
 
-The server can be incorporated into your application in 2 ways. It can be installed as a Node.js module and initialised in your existing server code, or it can be run as a standalone Docker service.
-
-### Adding to an existing Node.js server
-
 Install with `yarn add @hermes/server` or `npm install @hermes/server`.
 
 In your code, initialise the server with valid options:
@@ -20,14 +16,32 @@ In your code, initialise the server with valid options:
 import hermes from "@hermes/server";
 
 hermes({
-  port: 1234,               // Port to serve on (default 9000)
-  srv: "mongodb+srv://...", // SRV of your MongoDB instance
-  db: "my_db"               // Name of your desired database
+  // Port to serve on (default 9000)
+  port: 1234,
+
+  // SRV of your MongoDB instance
+  srv: "mongodb+srv://...",
+
+  // Name of your desired database
+  db: "my_db",
+
+  // Mongo collection whitelist (see below)
+  whitelist: {
+    users: [
+      "username",
+      "name.firstName",
+      "name.lastName",
+    ]
+  }
 });
 ```
 
-### Running as a standalone Docker service
+### Whitelist
 
-```shell
-docker run -d -p 9000:9000 -e MONGO_SRV=... -e MONGO_DB=... tdjsnelling/hermes-server:latest
-```
+When initialising your server, you need to explicitly whitelist the collections and fields from documents in those collections before they are accessible from the client.
+
+This is to prevent leaking sensitive information from your database by mistake or by manipulation from the client.
+
+You can think of it like a MongoDB projection: only fields included here will be present in returned documents. If a collection is not included in the whitelist, no documents from that collection will be accessible.
+
+Only [dot notation](https://www.mongodb.com/docs/manual/reference/operator/aggregation/project/#embedded-document-fields) is supported, nested fields are not.

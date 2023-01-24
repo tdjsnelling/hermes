@@ -6,6 +6,6 @@ export default createContext({
   clientId: "",
   subscriptions: {},
   documents: {},
-  register: (collection: string): string => "",
+  register: (collection: string, query?: object[]): string => "",
   unregister: (collection: string, id: string): void => {},
 });

@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "license": "GPL-3.0-only",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/server.js\"",
+    "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/dev-server.js\"",
     "start": "node dist/server.js"
   },
   "devDependencies": {

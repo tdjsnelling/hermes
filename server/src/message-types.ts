@@ -1,4 +1,4 @@
-import { Document, UpdateDescription } from "mongodb";
+import { Document } from "mongodb";
 
 export type Message<
   P = Payload,
@@ -22,10 +22,13 @@ type PIdentify = {
 
 type PSubscribe = {
   collection: string;
+  registrationId: string;
+  query?: object[];
 };
 
 type PUnsubscribe = {
   collection: string;
+  registrationId: string;
   id: string;
 };
 
@@ -36,8 +39,8 @@ export type DataReply = {
 
 export type PDataReply = {
   coll: string;
-  operation: "insert" | "delete" | "update";
+  registrationId: string;
+  operation?: "insert" | "delete";
   insertData?: Document[];
-  deleteData?: string[];
-  updateData?: { _id: string; updateDescription: UpdateDescription }[];
+  deleteData?: { _id: string; registrationId?: string }[];
 };

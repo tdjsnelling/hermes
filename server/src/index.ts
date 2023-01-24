@@ -1,4 +1,4 @@
-import { MongoClient, ChangeStream } from "mongodb";
+import { MongoClient, GenericListener } from "mongodb";
 import { WebSocketServer, WebSocket } from "ws";
 import { Message, DataReply } from "./message-types";
 
@@ -6,9 +6,12 @@ interface WebSocketWithUid extends WebSocket {
   uid?: string;
 }
 
+// clientId -> collection -> registrationId: stream handler
 type SubscriptionMap = {
   [key: string]: {
-    [key: string]: ChangeStream;
+    [key: string]: {
+      [key: string]: GenericListener;
+    };
   };
 };
 
@@ -16,10 +19,12 @@ export default async ({
   port = 9000,
   srv,
   db,
+  whitelist = {},
 }: {
   port?: number;
   srv: string;
   db: string;
+  whitelist?: { [key: string]: string[] };
 }) => {
   const subscriptionMap: SubscriptionMap = {};
 
@@ -30,6 +35,22 @@ export default async ({
 
   try {
     await client.connect();
+    console.log("hermes: connected to mongo database");
+
+    const globalStream = client.db(db).watch(
+      [
+        {
+          $match: {
+            $or: [
+              { operationType: "insert" },
+              { operationType: "update" },
+              { operationType: "delete" },
+            ],
+          },
+        },
+      ]
+      //{ fullDocument: "updateLookup" }
+    );
 
     server.on("connection", (ws: WebSocketWithUid) => {
       const reply = (data: {
@@ -47,7 +68,6 @@ export default async ({
           message = JSON.parse(data.toString());
         } catch (e) {
           reply({ reply: "none", error: "Message must be valid JSON" });
-          ws.close();
           return;
         }
 
@@ -83,7 +103,7 @@ export default async ({
         }
 
         if (message.type === "subscribe") {
-          const { collection } = message.payload;
+          const { collection, query, registrationId } = message.payload;
 
           if (!collection) {
             reply({
@@ -93,25 +113,64 @@ export default async ({
             return;
           }
 
+          if (!registrationId) {
+            reply({
+              reply: "subscribe",
+              error: "`registrationId` must be specified",
+            });
+            return;
+          }
+
+          if (!Object.keys(whitelist).includes(collection)) {
+            reply({
+              reply: "subscribe",
+              error: `"${collection}" is not a whitelisted collection`,
+            });
+            return;
+          }
+
           if (!subscriptionMap[ws.uid]) subscriptionMap[ws.uid] = {};
+          if (!subscriptionMap[ws.uid][collection])
+            subscriptionMap[ws.uid][collection] = {};
 
-          const stream = client.db(db).collection(collection).watch();
+          const whitelistedFields = whitelist[collection];
 
-          subscriptionMap[ws.uid][collection] = stream;
+          let pipeline = query ?? [];
+          pipeline = [
+            {
+              $project: whitelistedFields.reduce((acc, cur) => {
+                acc[cur] = 1;
+                return acc;
+              }, {}),
+            },
+            ...pipeline,
+          ];
 
-          handleChangeStream(stream, server, ws.uid);
+          const handler = getChangeStreamHandler(
+            server,
+            client.db(db).collection(collection),
+            ws.uid,
+            registrationId,
+            whitelistedFields,
+            pipeline
+          );
+
+          subscriptionMap[ws.uid][collection][registrationId] = handler;
+
+          globalStream.on("change", handler);
 
           reply({
             reply: "subscribe",
             payload: {
               collection,
+              registrationId,
             },
           });
 
           const docs = await client
             .db(db)
             .collection(collection)
-            .find({})
+            .aggregate(pipeline)
             .toArray();
 
           reply({
@@ -120,12 +179,13 @@ export default async ({
               coll: collection,
               operation: "insert",
               insertData: docs,
+              registrationId,
             },
           });
         }
 
         if (message.type === "unsubscribe") {
-          const { collection } = message.payload;
+          const { collection, registrationId } = message.payload;
 
           if (!collection) {
             reply({
@@ -135,23 +195,37 @@ export default async ({
             return;
           }
 
-          if (subscriptionMap[ws.uid][collection]) {
-            subscriptionMap[ws.uid][collection].close();
-            delete subscriptionMap[ws.uid][collection];
+          if (!registrationId) {
+            reply({
+              reply: "unsubscribe",
+              error: "`registrationId` must be specified",
+            });
+            return;
+          }
+
+          if (subscriptionMap[ws.uid][collection][registrationId]) {
+            globalStream.removeListener(
+              "change",
+              subscriptionMap[ws.uid][collection][registrationId]
+            );
+            delete subscriptionMap[ws.uid][collection][registrationId];
           }
 
           reply({
             reply: "unsubscribe",
             payload: {
               collection,
+              registrationId,
             },
           });
         }
       });
 
       ws.on("close", () => {
-        for (const stream of Object.values(subscriptionMap[ws.uid] ?? {})) {
-          stream.close();
+        for (const collection of Object.values(subscriptionMap[ws.uid] ?? {})) {
+          for (const handler of Object.values(collection)) {
+            globalStream.removeListener("change", handler);
+          }
         }
         delete subscriptionMap[ws.uid];
       });
@@ -159,45 +233,88 @@ export default async ({
       ws.send("hermes");
     });
 
-    console.log(`hermes server running at ws://localhost:${port}`);
+    console.log(`hermes: server running at ws://localhost:${port}`);
   } catch (e) {
     console.error(`hermes: error: ${e}`);
   }
 };
 
-const handleChangeStream = (stream, server, uid) => {
-  stream.on("change", (event) => {
-    if (
-      event.operationType === "insert" ||
-      event.operationType === "delete" ||
-      event.operationType === "update"
-    ) {
-      const { coll } = event.ns;
+const getChangeStreamHandler = (
+  server,
+  dbCollection,
+  uid,
+  registrationId,
+  whitelistedFields,
+  pipeline
+) => {
+  const send = (message) => {
+    const ws = Array.from(server.clients).find(
+      (ws: WebSocketWithUid) => ws.uid === uid
+    ) as WebSocketWithUid;
 
-      const message: DataReply = {
-        reply: "data",
-        payload: {
-          coll,
-          operation: event.operationType,
-        },
-      };
+    if (ws) ws.send(JSON.stringify(message));
+  };
 
-      if (event.operationType === "insert")
-        message.payload.insertData = [event.fullDocument];
-      else if (event.operationType === "delete")
-        message.payload.deleteData = [event.documentKey._id.toString()];
-      else if (event.operationType === "update")
-        message.payload.updateData = [
+  return async (event) => {
+    const { coll } = event.ns;
+
+    const message: DataReply = {
+      reply: "data",
+      payload: {
+        coll,
+        registrationId,
+      },
+    };
+
+    if (event.operationType === "insert" || event.operationType === "update") {
+      let matchedDocument;
+
+      if (pipeline.length) {
+        const scopedPipeline = [
           {
-            _id: event.documentKey._id.toString(),
-            updateDescription: event.updateDescription,
+            $match: {
+              _id: event.documentKey._id,
+            },
           },
+          ...pipeline,
         ];
 
-      const ws = Array.from(server.clients).find(
-        (ws: WebSocketWithUid) => ws.uid === uid
-      ) as WebSocketWithUid;
-      ws.send(JSON.stringify(message));
+        [matchedDocument] = await dbCollection
+          .aggregate(scopedPipeline)
+          .toArray();
+
+        if (event.operationType === "update") {
+          const updatedKeys = [
+            ...Object.keys(event.updateDescription.updatedFields),
+            ...event.updateDescription.removedFields,
+          ];
+          const updateIsRelevant = updatedKeys.some(
+            (key) =>
+              whitelistedFields.includes(key) ||
+              whitelistedFields.some((wlKey) => wlKey.startsWith(`${key}.`))
+          );
+          if (!updateIsRelevant) return;
+        }
+
+        if (!matchedDocument) {
+          message.payload.operation = "delete";
+          message.payload.deleteData = [
+            { _id: event.documentKey._id.toString(), registrationId },
+          ];
+          send(message);
+          return;
+        }
+      }
+
+      message.payload.operation = "insert";
+      message.payload.insertData = [matchedDocument];
     }
-  });
+
+    if (event.operationType === "delete") {
+      message.payload.operation = "delete";
+      message.payload.deleteData = [{ _id: event.documentKey._id.toString() }];
+    }
+
+    send(message);
+  };
 };

@@ -1,8 +1,12 @@
 import { useRef, useEffect } from "react";
 import { useContextSelector } from "use-context-selector";
+import { Document } from "mongodb";
 import HermesContext from "./HermesContext";
+import { DocumentsStore } from "./HermesProvider";
 
-export default (collection: string, modifier?: Function): object[] => {
+export default (collection: string, query?: Document[]): Document[] => {
+  const registrationId: { current: string } = useRef("");
+
   const connected = useContextSelector(
     HermesContext,
     (value) => value.connected
@@ -13,18 +17,21 @@ export default (collection: string, modifier?: Function): object[] => {
     (value) => value.unregister
   );
   const documents = useContextSelector(HermesContext, (value) => {
-    const { documents } = value;
-    const documentsArray = Object.values(documents[collection] ?? {});
-    return JSON.stringify(
-      typeof modifier === "function" ? modifier(documentsArray) : documentsArray
-    );
+    const { documents }: { documents: DocumentsStore } = value;
+    const [rootId] = registrationId.current.split("_");
+    const documentsArray = Object.values(documents[collection] ?? {})
+      .filter((document) => document._hermes_registrationIds.has(rootId))
+      .map((document) => {
+        const clone = { ...document };
+        delete clone._hermes_registrationIds;
+        return clone;
+      });
+    return JSON.stringify(documentsArray);
   });
-
-  const registrationId: { current: string } = useRef("");
 
   useEffect(() => {
     if (connected) {
-      registrationId.current = register(collection);
+      registrationId.current = register(collection, query);
     } else {
       unregister(collection, registrationId.current);
     }
