@@ -1,9 +1,10 @@
 {
   "name": "@hermes/server",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "license": "GPL-3.0-only",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "private": false,
   "scripts": {
     "build": "tsc",
     "dev": "concurrently --kill-others \"yarn build --watch\" \"nodemon dist/dev-server.js\"",

@@ -1,0 +1,4 @@
+.env
+.eslintignore
+.eslintrc.json
+src/
