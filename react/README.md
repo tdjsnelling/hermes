@@ -16,7 +16,7 @@ To use Hermes in your React application, you will first need to wrap your applic
 
 The only prop that the provider requires is `url`, the WebSocket endpoint of your Hermes server.
 
-```javascript
+```jsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { HermesProvider } from "@hermes/react";
@@ -37,7 +37,7 @@ The `useHermes` hook allows you to access real-time data as it appears in your M
 
 The most basic usage is to just pass the name of the collection you want to return real-time documents for. 
 
-```javascript
+```jsx
 import React from "react";
 import { useHermes } from "@hermes/react";
 
@@ -82,7 +82,7 @@ You can have multiple hooks subscribed to the same collection using different qu
 
 The `useHermesState` hook returns some potentially useful information around the internal state of the Hermes provider.
 
-```javascript
+```jsx
 import React from "react";
 import { useHermesState } from "@hermes/react";
 
